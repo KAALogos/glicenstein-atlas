@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="robots" content="noindex,nofollow,noarchive" />
+<title>Glicenstein — Atlas życia i twórczości</title>
+<style>
+:root {color-scheme:light}*{box-sizing:border-box}body{margin:0;background:#f4f1e9;color:#29342e;font-family:system-ui,-apple-system,Segoe UI,sans-serif}button,input{font:inherit}a{color:#803d35}
+#lockscreen{min-height:100dvh;display:grid;place-items:center;padding:22px}.login{width:min(480px,100%);padding:48px 38px;background:#fffefc;box-shadow:0 26px 80px #1d261d13;border:1px solid #deded4;border-radius:15px}.monogram{border:1px solid #b9aa80;border-radius:100%;width:54px;height:54px;display:grid;place-items:center;font:34px Georgia,serif;color:#9d855a;margin-bottom:25px}h1{font:clamp(26px,5vw,37px) Georgia,serif;line-height:1.13;letter-spacing:.025em;margin:0 0 12px}.sub{color:#78817a;font-size:13px;letter-spacing:.08em;text-transform:uppercase}p{line-height:1.65;color:#65706a}label{font-size:13px;display:block;margin:30px 0 9px;font-weight:650}input{display:block;width:100%;padding:14px;border:1px solid #bdc4b9;border-radius:8px;background:white;font-size:17px}input:focus{outline:2px solid #8e7460;outline-offset:2px}button{background:#2f4c3b;border:1px solid #2f4c3b;color:white;border-radius:8px;padding:13px 19px;font-weight:650;cursor:pointer}button:disabled{opacity:.65;cursor:progress}button.secondary{background:transparent;border-color:#6f826f;color:#2b4b38}button:hover:not(:disabled){filter:brightness(1.1)}form button{width:100%;margin-top:16px}#message{min-height:22px;color:#a23428;font-size:13px;margin-top:12px}small{font-size:12px;color:#777;display:block;margin-top:22px;line-height:1.6}
+#unlocked{display:none;min-height:100dvh;flex-direction:column}#toolbar{background:#24362d;color:#f1efdf;padding:10px 15px;display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between}#toolbar strong{font-size:13px;letter-spacing:.04em}#toolbar .actions{display:flex;gap:8px;flex-wrap:wrap}#toolbar button{padding:7px 12px;font-size:12px;border:1px solid #82988b;background:transparent;color:white}#toolbar button:disabled{opacity:.55}#viewer{width:100%;flex:1;border:0;height:calc(100dvh - 65px);background:#fff}#downloadStatus{font-size:11px;color:#cbd8cb} @media(max-width:520px){.login{padding:32px 22px}#toolbar strong{display:none}#viewer{height:calc(100dvh - 98px)}}
+</style>
+</head>
+<body>
+<section id="lockscreen"><div class="login"><div class="monogram">G</div><div class="sub">Archiwum badawcze · dostęp prywatny</div><h1>Henryk Glicenstein</h1><p>Atlas życia i twórczości, katalog prac i fototeka. Wszystkie materiały badawcze są zaszyfrowane. Wpisz hasło, aby otworzyć atlas.</p><form id="unlockform"><label for="password">Hasło do atlasu</label><input type="password" id="password" autocomplete="off" minlength="1" required placeholder="Hasło" /><button id="submit" type="submit">Otwórz atlas</button></form><div id="message" role="alert" aria-live="polite"></div><small>Hasło nie jest przesyłane na serwer. Odszyfrowanie następuje wyłącznie w przeglądarce. Repozytorium GitHub jest publiczne, ale jego zasoby badawcze pozostają zaszyfrowane.</small></div></section>
+<section id="unlocked"><div id="toolbar"><strong>GLICENSTEIN · ATLAS WEWNĘTRZNY</strong><span id="downloadStatus">Materiały odszyfrowano w przeglądarce.</span><div class="actions"><button id="downloadPhotos" type="button">Pobierz 9 oryginalnych fotografii (ZIP)</button><button id="lock" type="button">Zablokuj</button></div></div><iframe id="viewer" title="Atlas życia i twórczości Glicensteina" referrerpolicy="no-referrer"></iframe></section>
+<script>
+'use strict';
+// Public code only; encrypted bytes are stored in /vault/*.enc. No password or private records are embedded here.
+const ITERATIONS=600000;
+const PHOTO_CHUNKS=['vault/fotografie_01.enc','vault/fotografie_02.enc','vault/fotografie_03.enc','vault/fotografie_04.enc'];
+const $=s=>document.querySelector(s);
+let keyBase=null;
+async function decryptFile(url,password){
+  const response=await fetch(url,{cache:'no-store'});
+  if(!response.ok)throw new Error('Nie udało się pobrać zaszyfrowanych danych (HTTP '+response.status+').');
+  const buf=await response.arrayBuffer();
+  const b=new Uint8Array(buf);
+  if(b.length<65 || new TextDecoder().decode(b.slice(0,8))!=='GLIENC01')throw new Error('Nieprawidłowy plik danych.');
+  const raw=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveKey']);
+  const key=await crypto.subtle.deriveKey({name:'PBKDF2',hash:'SHA-256',salt:b.slice(8,24),iterations:ITERATIONS},raw,{name:'AES-GCM',length:256},false,['decrypt']);
+  const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:b.slice(24,36),additionalData:b.slice(0,8)},key,b.slice(36));
+  return new Uint8Array(plain);
+}
+async function ungzip(bytes){
+  if(!('DecompressionStream' in window))throw new Error('Przeglądarka nie obsługuje rozpakowywania GZIP. Otwórz stronę w aktualnym Chrome, Edge lub Firefox.');
+  const stream=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return await new Response(stream).text();
+}
+$('#unlockform').addEventListener('submit',async e=>{
+  e.preventDefault();const input=$('#password'),password=input.value,submit=$('#submit'),message=$('#message');
+  submit.disabled=true;submit.textContent='Odszyfrowywanie…';message.textContent='';
+  try {
+    if(!window.crypto?.subtle)throw new Error('Wymagane jest HTTPS albo localhost.');
+    const bytes=await decryptFile('vault/atlas.enc',password);
+    const html=await ungzip(bytes);
+    if(!html.includes('GLICENSTEIN') || !html.includes('</html>'))throw new Error('Wynik odszyfrowania nie wygląda jak atlas.');
+    keyBase=password;
+    $('#viewer').srcdoc=html;
+    $('#lockscreen').style.display='none';$('#unlocked').style.display='flex';
+    input.value='';
+  }catch(err){message.textContent=err.name==='OperationError'?'Błędne hasło albo uszkodzone dane.':String(err.message||err);}
+  finally{submit.disabled=false;submit.textContent='Otwórz atlas';}
+});
+$('#lock').addEventListener('click',()=>{keyBase=null;$('#viewer').removeAttribute('srcdoc');$('#viewer').src='about:blank';$('#unlocked').style.display='none';$('#lockscreen').style.display='grid';$('#password').focus();$('#downloadStatus').textContent='Materiały odszyfrowano w przeglądarce.';});
+$('#downloadPhotos').addEventListener('click',async()=>{
+  if(!keyBase)return;
+  const btn=$('#downloadPhotos');btn.disabled=true;
+  try{
+    const blobs=[];let i=0;
+    for(const url of PHOTO_CHUNKS){i++;$('#downloadStatus').textContent=`Odszyfrowuję fotografie: ${i}/${PHOTO_CHUNKS.length}…`;blobs.push(await decryptFile(url,keyBase));}
+    const zip=new Blob(blobs,{type:'application/zip'}),link=document.createElement('a');
+    const u=URL.createObjectURL(zip);link.href=u;link.download='Glicenstein_9_fotografii_oryginalnych.zip';document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(u),30000);
+    $('#downloadStatus').textContent='Pobrano archiwum zdjęć.';
+  }catch(err){$('#downloadStatus').textContent='Błąd fotografii: '+(err.name==='OperationError'?'Błędne dane szyfrowania':err.message);}
+  finally{btn.disabled=false;}
+});
+</script>
+</body></html>
