@@ -46,7 +46,7 @@ $('#unlockform').addEventListener('submit',async e=>{
     const html=await ungzip(bytes);
     if(!html.includes('GLICENSTEIN') || !html.includes('</html>'))throw new Error('Wynik odszyfrowania nie wygląda jak atlas.');
     keyBase=password;
-    $('#viewer').srcdoc=html;
+    $('#viewer').srcdoc=html.replace(/<head[^>]*>/i,m=>m+'<script>try{history.replaceState=function(){}}catch(e){}<\/script>');
     $('#lockscreen').style.display='none';$('#unlocked').style.display='flex';
     input.value='';
   }catch(err){message.textContent=err.name==='OperationError'?'Błędne hasło albo uszkodzone dane.':String(err.message||err);}
