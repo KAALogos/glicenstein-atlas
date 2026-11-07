@@ -18,14 +18,20 @@
 'use strict';
 // Public code only; encrypted bytes are stored in /vault/*.enc. No password or private records are embedded here.
 const ITERATIONS=600000;
+const ATLAS_CHUNKS=["vault/atlas_v03_01.part","vault/atlas_v03_02.part","vault/atlas_v03_03.part","vault/atlas_v03_04.part","vault/atlas_v03_05.part","vault/atlas_v03_06.part","vault/atlas_v03_07.part","vault/atlas_v03_08.part","vault/atlas_v03_09.part","vault/atlas_v03_10.part","vault/atlas_v03_11.part","vault/atlas_v03_12.part","vault/atlas_v03_13.part","vault/atlas_v03_14.part"];
 const PHOTO_CHUNKS=['vault/fotografie_01.enc','vault/fotografie_02.enc','vault/fotografie_03.enc','vault/fotografie_04.enc'];
 const $=s=>document.querySelector(s);
 let keyBase=null;
 async function decryptFile(url,password){
-  const response=await fetch(url,{cache:'no-store'});
-  if(!response.ok)throw new Error('Nie udało się pobrać zaszyfrowanych danych (HTTP '+response.status+').');
-  const buf=await response.arrayBuffer();
-  const b=new Uint8Array(buf);
+  const urls=Array.isArray(url)?url:[url];const parts=[];let size=0;
+  for(const item of urls){
+    const response=await fetch(item,{cache:'no-store'});
+    if(!response.ok)throw new Error('Nie udało się pobrać zaszyfrowanych danych (HTTP '+response.status+').');
+    const part=new Uint8Array(await response.arrayBuffer());
+    parts.push(part);size+=part.length;
+  }
+  const b=new Uint8Array(size);let offset=0;
+  for(const part of parts){b.set(part,offset);offset+=part.length;}
   if(b.length<65 || new TextDecoder().decode(b.slice(0,8))!=='GLIENC01')throw new Error('Nieprawidłowy plik danych.');
   const raw=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveKey']);
   const key=await crypto.subtle.deriveKey({name:'PBKDF2',hash:'SHA-256',salt:b.slice(8,24),iterations:ITERATIONS},raw,{name:'AES-GCM',length:256},false,['decrypt']);
@@ -42,7 +48,7 @@ $('#unlockform').addEventListener('submit',async e=>{
   submit.disabled=true;submit.textContent='Odszyfrowywanie…';message.textContent='';
   try {
     if(!window.crypto?.subtle)throw new Error('Wymagane jest HTTPS albo localhost.');
-    const bytes=await decryptFile('vault/atlas.enc',password);
+    const bytes=await decryptFile(ATLAS_CHUNKS,password);
     const html=await ungzip(bytes);
     if(!html.includes('GLICENSTEIN') || !html.includes('</html>'))throw new Error('Wynik odszyfrowania nie wygląda jak atlas.');
     keyBase=password;
