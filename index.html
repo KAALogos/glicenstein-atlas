@@ -52,7 +52,11 @@ $('#unlockform').addEventListener('submit',async e=>{
     const html=await ungzip(bytes);
     if(!html.includes('GLICENSTEIN') || !html.includes('</html>'))throw new Error('Wynik odszyfrowania nie wygląda jak atlas.');
     keyBase=password;
-    $('#viewer').srcdoc=html.replace(/<head[^>]*>/i,m=>m+'<script>try{history.replaceState=function(){}}catch(e){}<\/script>');
+    // Publiczny modul UI jest dolaczany dopiero po odszyfrowaniu prywatnego atlasu.
+    // Publiczny kod nie zawiera hasla ani listy prywatnych prac.
+    const addonURL=new URL('concept-photo-addon.js',location.href).href;
+    const enhanced=html.replace(/<\/body>\s*<\/html>\s*$/i,'<script src="'+addonURL+'"><\/script></body></html>');
+    $('#viewer').srcdoc=enhanced.replace(/<head[^>]*>/i,m=>m+'<script>try{history.replaceState=function(){}}catch(e){}<\/script>');
     $('#lockscreen').style.display='none';$('#unlocked').style.display='flex';
     input.value='';
   }catch(err){message.textContent=err.name==='OperationError'?'Błędne hasło albo uszkodzone dane.':String(err.message||err);}
